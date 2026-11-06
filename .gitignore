@@ -39,6 +39,7 @@ build/Release
 
 # Dependency directories
 node_modules/
+**/node_modules/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
@@ -49,6 +50,7 @@ web_modules/
 
 # Optional npm cache directory
 .npm
+.npm-cache/
 
 # Optional eslint cache
 .eslintcache
@@ -81,6 +83,7 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+dist-seed/
 .output
 
 # Gatsby files
@@ -147,3 +150,15 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Local generated data and reports
+.DS_Store
+*.local
+playwright-report/
+test-results/
+
+# Local-only project notes and deployment variants
+/docs/
+/AGENTS.md
+/IMPLEMENTATION_PLAN.md
+/infra/local/

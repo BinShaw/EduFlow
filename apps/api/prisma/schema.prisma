@@ -1,0 +1,324 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+}
+
+enum StudentStatus {
+  PROSPECT
+  ACTIVE
+  INACTIVE
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  TRIAL_BOOKED
+  TRIAL_DONE
+  ENROLLED
+  LOST
+}
+
+enum SessionStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum TrialStatus {
+  BOOKED
+  ATTENDED
+  NO_SHOW
+  CANCELLED
+}
+
+enum FollowUpStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+}
+
+enum CreditLedgerType {
+  PURCHASE
+  ATTENDANCE_DEDUCTION
+  REFUND
+  ADJUSTMENT
+  EXPIRY
+}
+
+model User {
+  id             String      @id @default(uuid()) @db.Uuid
+  email          String      @unique @db.VarChar(254)
+  name           String      @db.VarChar(120)
+  passwordHash   String      @db.VarChar(255)
+  role           UserRole
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+  ownedStudents  Student[]   @relation("StudentOwner")
+  createdLeads   Lead[]      @relation("LeadCreator")
+  taughtGroups   ClassGroup[] @relation("GroupTeacher")
+  taughtSessions LessonSession[] @relation("SessionTeacher")
+  createdTrials  TrialBooking[] @relation("TrialCreator")
+  createdFollowUps FollowUp[] @relation("FollowUpCreator")
+  ownerChanges   OwnerChange[] @relation("OwnerChangeActor")
+  assignedFrom   OwnerChange[] @relation("PreviousOwner")
+  assignedTo     OwnerChange[] @relation("NewOwner")
+  creditLedgerEntries CreditLedger[] @relation("CreditLedgerActor")
+  auditLogs AuditLog[]
+}
+
+model Guardian {
+  id        String @id @default(uuid()) @db.Uuid
+  name      String @db.VarChar(120)
+  email     String? @db.VarChar(254)
+  phone     String? @db.VarChar(40)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  students  StudentGuardian[]
+}
+
+model StudentGuardian {
+  studentId String @db.Uuid
+  guardianId String @db.Uuid
+  relationship String @default("Parent") @db.VarChar(60)
+  isPrimary Boolean @default(false)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, guardianId])
+  @@index([guardianId])
+}
+
+model Student {
+  id          String @id @default(uuid()) @db.Uuid
+  demoKey     String? @unique @db.VarChar(80)
+  createRequestKey String? @unique @db.VarChar(160)
+  firstName   String @db.VarChar(80)
+  lastName    String @db.VarChar(80)
+  yearLevel   Int?
+  status      StudentStatus @default(PROSPECT)
+  ownerAdminId String @db.Uuid
+  owner       User @relation("StudentOwner", fields: [ownerAdminId], references: [id], onDelete: Restrict)
+  guardians   StudentGuardian[]
+  leads       Lead[]
+  enrollments Enrollment[]
+  attendance  Attendance[]
+  creditPurchases CreditPurchase[]
+  creditLedger   CreditLedger[]
+  followUps   FollowUp[]
+  ownerChanges OwnerChange[]
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([ownerAdminId, status])
+  @@index([lastName, firstName])
+}
+
+model OwnerChange {
+  id              String @id @default(uuid()) @db.Uuid
+  studentId       String @db.Uuid
+  previousOwnerId String? @db.Uuid
+  newOwnerId      String @db.Uuid
+  actorId         String @db.Uuid
+  reason          String @db.VarChar(500)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  student         Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  previousOwner   User? @relation("PreviousOwner", fields: [previousOwnerId], references: [id], onDelete: Restrict)
+  newOwner        User @relation("NewOwner", fields: [newOwnerId], references: [id], onDelete: Restrict)
+  actor           User @relation("OwnerChangeActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([studentId, createdAt])
+}
+
+model Lead {
+  id             String @id @default(uuid()) @db.Uuid
+  studentId      String @db.Uuid
+  createdById    String @db.Uuid
+  source         String? @db.VarChar(120)
+  stage          LeadStage @default(NEW)
+  lastContactAt  DateTime? @db.Timestamptz(3)
+  nextFollowUpAt DateTime? @db.Timestamptz(3)
+  notes          String? @db.VarChar(4000)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  student        Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdBy      User @relation("LeadCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  trials         TrialBooking[]
+  followUps      FollowUp[]
+
+  @@index([stage, nextFollowUpAt])
+  @@index([studentId, createdAt])
+}
+
+model Course {
+  id          String @id @default(uuid()) @db.Uuid
+  code        String @unique @db.VarChar(40)
+  name        String @db.VarChar(120)
+  subject     String @db.VarChar(80)
+  groups      ClassGroup[]
+}
+
+model ClassGroup {
+  id             String @id @default(uuid()) @db.Uuid
+  code           String @unique @db.VarChar(60)
+  courseId       String @db.Uuid
+  teacherId      String @db.Uuid
+  weekday        Int
+  localStartTime String @db.VarChar(5)
+  durationMinutes Int
+  capacity       Int
+  isActive       Boolean @default(true)
+  course         Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  teacher        User @relation("GroupTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  sessions       LessonSession[]
+  enrollments    Enrollment[]
+
+  @@index([teacherId, weekday])
+}
+
+model LessonSession {
+  id         String @id @default(uuid()) @db.Uuid
+  seedKey    String? @unique @db.VarChar(100)
+  classGroupId String @db.Uuid
+  teacherId  String @db.Uuid
+  startsAt   DateTime @db.Timestamptz(3)
+  endsAt     DateTime @db.Timestamptz(3)
+  capacity   Int
+  status     SessionStatus @default(SCHEDULED)
+  classGroup ClassGroup @relation(fields: [classGroupId], references: [id], onDelete: Restrict)
+  teacher    User @relation("SessionTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  trials     TrialBooking[]
+  attendance Attendance[]
+  creditLedger CreditLedger[]
+
+  @@index([startsAt, status])
+  @@index([teacherId, startsAt, endsAt])
+}
+
+model TrialBooking {
+  id             String @id @default(uuid()) @db.Uuid
+  leadId         String @db.Uuid
+  lessonSessionId String @db.Uuid
+  createdById    String @db.Uuid
+  status         TrialStatus @default(BOOKED)
+  outcome        String? @db.VarChar(40)
+  notes          String? @db.VarChar(4000)
+  cancelledReason String? @db.VarChar(500)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  lead           Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lessonSession  LessonSession @relation(fields: [lessonSessionId], references: [id], onDelete: Restrict)
+  createdBy      User @relation("TrialCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  followUps      FollowUp[]
+
+  @@index([status, lessonSessionId])
+  @@index([leadId, status])
+}
+
+model FollowUp {
+  id           String @id @default(uuid()) @db.Uuid
+  studentId    String @db.Uuid
+  leadId       String? @db.Uuid
+  trialBookingId String? @db.Uuid
+  createdById  String @db.Uuid
+  action       String @db.VarChar(300)
+  dueAt        DateTime @db.Timestamptz(3)
+  status       FollowUpStatus @default(OPEN)
+  completedAt  DateTime? @db.Timestamptz(3)
+  completionNote String? @db.VarChar(500)
+  messageDraft String? @db.VarChar(1200)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lead         Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  trialBooking TrialBooking? @relation(fields: [trialBookingId], references: [id], onDelete: SetNull)
+  createdBy    User @relation("FollowUpCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status, dueAt])
+  @@index([studentId, status, dueAt])
+}
+
+model Enrollment {
+  id          String @id @default(uuid()) @db.Uuid
+  studentId   String @db.Uuid
+  classGroupId String @db.Uuid
+  startsOn    DateTime @db.Date
+  endsOn      DateTime? @db.Date
+  student     Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classGroup  ClassGroup @relation(fields: [classGroupId], references: [id], onDelete: Restrict)
+
+  @@index([classGroupId, startsOn, endsOn])
+}
+
+model Attendance {
+  id             String @id @default(uuid()) @db.Uuid
+  studentId      String @db.Uuid
+  lessonSessionId String @db.Uuid
+  status         AttendanceStatus
+  feedback       String? @db.VarChar(2000)
+  recordedAt     DateTime @default(now()) @db.Timestamptz(3)
+  student        Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lessonSession  LessonSession @relation(fields: [lessonSessionId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, lessonSessionId])
+}
+
+model CreditPurchase {
+  id             String   @id @default(uuid()) @db.Uuid
+  studentId      String   @db.Uuid
+  credits        Int
+  amountCents    Int?
+  currency       String   @default("AUD") @db.Char(3)
+  purchasedAt    DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime? @db.Timestamptz(3)
+  externalRef    String?  @unique @db.VarChar(120)
+  notes          String?  @db.VarChar(500)
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  ledgerEntries  CreditLedger[]
+
+  @@index([studentId, purchasedAt])
+}
+
+model CreditLedger {
+  id              String          @id @default(uuid()) @db.Uuid
+  studentId       String          @db.Uuid
+  purchaseId      String?         @db.Uuid
+  actorId         String?         @db.Uuid
+  lessonSessionId String?         @db.Uuid
+  type            CreditLedgerType
+  delta           Int
+  referenceKey    String          @unique @db.VarChar(160)
+  note            String?         @db.VarChar(500)
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  student         Student         @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  purchase        CreditPurchase? @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  actor           User?           @relation("CreditLedgerActor", fields: [actorId], references: [id], onDelete: Restrict)
+  lessonSession   LessonSession?  @relation(fields: [lessonSessionId], references: [id], onDelete: Restrict)
+
+  @@index([studentId, createdAt])
+  @@index([lessonSessionId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String   @db.Uuid
+  action     String   @db.VarChar(80)
+  resourceId String   @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([resourceId, createdAt])
+}

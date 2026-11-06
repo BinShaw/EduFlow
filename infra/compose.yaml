@@ -1,0 +1,132 @@
+name: eduflow
+
+x-api-image: &api-image
+  image: eduflow-api:${IMAGE_TAG:-local}
+  build:
+    context: ..
+    dockerfile: infra/api.Dockerfile
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in external env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in external env}
+      POSTGRES_DB: ${POSTGRES_DB:-eduflow}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set runtime database password}
+    command:
+      [
+        'postgres',
+        '-c',
+        'shared_buffers=128MB',
+        '-c',
+        'work_mem=4MB',
+        '-c',
+        'maintenance_work_mem=64MB',
+        '-c',
+        'max_connections=40',
+      ]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/10-app-role.sql:/docker-entrypoint-initdb.d/10-app-role.sql:ro
+    networks: [database]
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 0.75
+    logging: *logging
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    <<: *api-image
+    env_file: ['${EDUFLOW_ENV_FILE:?absolute external runtime env path required}']
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      NODE_OPTIONS: --max-old-space-size=512
+    networks: [default, database]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+    init: true
+    mem_limit: 768m
+    cpus: 1.0
+    logging: *logging
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: eduflow-web:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    environment:
+      DOMAIN: ${DOMAIN:?set the HTTPS domain}
+      ACME_EMAIL: ${ACME_EMAIL:?set certificate contact email}
+    ports: ['80:80', '443:443', '443:443/udp']
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.25
+    logging: *logging
+
+  migrate:
+    <<: *api-image
+    profiles: [tools]
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?set owner migration connection string}
+    networks: [database]
+    depends_on:
+      db: { condition: service_healthy }
+    command:
+      [
+        'node',
+        'node_modules/prisma/build/index.js',
+        'migrate',
+        'deploy',
+        '--schema=apps/api/prisma/schema.prisma',
+      ]
+    mem_limit: 512m
+    logging: *logging
+
+  seed:
+    <<: *api-image
+    profiles: [tools]
+    env_file: ['${EDUFLOW_ENV_FILE:?absolute external runtime env path required}']
+    networks: [database]
+    depends_on:
+      db: { condition: service_healthy }
+    command: ['node', 'apps/api/dist-seed/prisma/seed.js']
+    mem_limit: 512m
+    logging: *logging
+
+networks:
+  database:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

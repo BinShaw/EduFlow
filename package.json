@@ -1,0 +1,41 @@
+{
+  "name": "eduflow",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run start:dev --workspace @eduflow/api",
+    "dev:web": "npm run dev --workspace @eduflow/web",
+    "build": "npm run build --workspace @eduflow/api && npm run build --workspace @eduflow/web",
+    "test": "npm run test --workspace @eduflow/api && npm run test --workspace @eduflow/web",
+    "db:generate": "npm run db:generate --workspace @eduflow/api",
+    "db:migrate": "npm run db:migrate --workspace @eduflow/api",
+    "db:seed": "npm run db:seed --workspace @eduflow/api",
+    "db:deploy": "npm run db:deploy --workspace @eduflow/api",
+    "test:integration": "npm run test:integration --workspace @eduflow/api",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "prettier": "^3.9.10"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "overrides": {
+    "multer": "2.5.0",
+    "deepmerge-ts": "8.0.2",
+    "lodash": "^4.18.1",
+    "qs": "^6.17.1",
+    "zod": "4.6.7",
+    "glob@>=10.0.0 <11.0.0": "10.5.0",
+    "@nestjs/common": "11.2.8",
+    "@nestjs/core": "11.2.8",
+    "@nestjs/platform-express": "11.2.8"
+  }
+}
